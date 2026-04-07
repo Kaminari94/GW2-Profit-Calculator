@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kami's GW2 Profit Calculator</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <style>
+      [x-cloak] { display: none !important; }
+
+      .glass {
+        background: rgba(15, 23, 42, 0.72);
+        backdrop-filter: blur(14px);
+      }
+
+      .grid-bg {
+        background-image:
+          linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+
+      .scroll-thin::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .scroll-thin::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.35);
+        border-radius: 999px;
+      }
+
+      .coin-icon {
+        width: 16px;
+        height: 16px;
+        display: inline-block;
+        vertical-align: text-bottom;
+      }
+
+      .rain-item {
+        position: fixed;
+        top: -64px;
+        pointer-events: none;
+        z-index: 60;
+        animation-name: scrap-fall;
+        animation-timing-function: linear;
+        animation-fill-mode: forwards;
+        filter: drop-shadow(0 10px 10px rgba(0,0,0,0.28));
+      }
+
+      @keyframes scrap-fall {
+        0% {
+          transform: translateY(-80px) rotate(0deg);
+          opacity: 0;
+        }
+        10% {
+          opacity: 1;
+        }
+        100% {
+          transform: translateY(115vh) rotate(360deg);
+          opacity: 0.92;
+        }
+      }
+
+      .bounce-item {
+        position: fixed;
+        pointer-events: none;
+        z-index: 55;
+        filter: drop-shadow(0 10px 10px rgba(0,0,0,0.35));
+        will-change: transform, left, top;
+      }
+
+      .soft-pulse {
+        animation: soft-pulse 2.2s ease-in-out infinite;
+      }
+
+      @keyframes soft-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.15); }
+        50% { box-shadow: 0 0 0 12px rgba(59,130,246,0.0); }
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen bg-slate-950 text-slate-100 grid-bg overflow-x-hidden">
+    <div x-data="gw2ProfitApp()" x-init="await init()" x-cloak class="relative min-h-screen">
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.14),transparent_28%)]"></div>
+
+      <template x-for="drop in rainingScraps" :key="drop.id">
+        <img
+          :src="drop.img"
+          alt=""
+          class="rain-item"
+          :style="`left:${drop.left}vw;width:${drop.size}px;height:${drop.size}px;animation-duration:${drop.duration}ms;animation-delay:${drop.delay}ms;`"
+        />
+      </template>
+
+      <template x-for="orb in crystalSwarm" :key="orb.id">
+        <img
+          :src="orb.img"
+          alt=""
+          class="bounce-item"
+          :style="`left:${orb.x}px;top:${orb.y}px;width:${orb.size}px;height:${orb.size}px;transform:rotate(${orb.rot}deg);`"
+        />
+      </template>
+
+      <main class="relative z-10 max-w-6xl mx-auto px-4 py-6 md:py-10">
+        <header class="mb-6 md:mb-8">
+          <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div class="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1 text-xs uppercase tracking-[0.22em] text-sky-300">
+                Guild Wars 2 Trading Post Tool
+              </div>
+              <h1 class="mt-3 text-3xl md:text-5xl font-black tracking-tight">
+                Single Item Profit Calculator
+              </h1>
+              <p class="mt-3 max-w-2xl text-sm md:text-base text-slate-300">
+                Search one item, pull its Trading Post values, tweak buy/sell prices manually, adjust fees, and instantly see cost, fees, profit, and break-even.
+              </p>
+            </div>
+
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+              <div class="h-2.5 w-2.5 rounded-full" :class="loaded ? 'bg-emerald-400' : 'bg-amber-400'"></div>
+              <span x-text="status"></span>
+            </div>
+          </div>
+        </header>
+
+        <section class="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div class="glass rounded-3xl border border-white/10 p-4 md:p-6 shadow-2xl shadow-black/30">
+            <div class="flex flex-col gap-5">
+              <div>
+                <label for="item-search" class="block text-sm font-semibold text-slate-200 mb-2">
+                  Item search
+                </label>
+                <div class="relative">
+                  <div class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35m1.85-5.15a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+                    </svg>
+                  </div>
+
+                  <input
+                    id="item-search"
+                    type="text"
+                    x-model="searchQuery"
+                    @input.debounce.120ms="handleSearchInput()"
+                    @keydown.enter.prevent="selectFirstSuggestion()"
+                    @keydown.escape="closeSuggestions()"
+                    autocomplete="off"
+                    placeholder="Start typing an item name..."
+                    class="w-full rounded-2xl border border-white/10 bg-slate-900/80 pl-12 pr-4 py-4 text-base text-white outline-none transition focus:border-sky-400/60 focus:ring-4 focus:ring-sky-400/10"
+                  />
+
+                  <button
+                    type="button"
+                    @click="resetAll()"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-white/5 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white"
+                  >
+                    Reset
+                  </button>
+
+                  <div
+                    x-show="suggestionsOpen"
+                    x-transition.origin.top
+                    @click.outside="closeSuggestions()"
+                    class="absolute z-40 mt-2 w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 shadow-2xl"
+                  >
+                    <div class="max-h-[360px] overflow-y-auto scroll-thin">
+                      <template x-for="item in suggestions" :key="item.id">
+                        <button
+                          type="button"
+                          @click="selectItem(item)"
+                          class="flex w-full items-center gap-3 border-b border-white/5 px-4 py-3 text-left transition hover:bg-white/5"
+                        >
+                          <img :src="item.img" alt="" class="h-10 w-10 rounded-xl bg-slate-800 object-cover" />
+                          <div class="min-w-0 flex-1">
+                            <div class="truncate font-semibold text-slate-100" x-text="item.name"></div>
+                            <div class="mt-1 text-xs text-slate-400">
+                              Buy <span class="font-semibold text-emerald-300" x-html="formatCoinsHtml(item.buy_price || 0)"></span>
+                              <span class="mx-2 text-slate-600">•</span>
+                              Sell <span class="font-semibold text-amber-300" x-html="formatCoinsHtml(item.sell_price || 0)"></span>
+                            </div>
+                          </div>
+                        </button>
+                      </template>
+
+                      <div x-show="suggestions.length === 0" class="px-4 py-4 text-sm text-slate-400">
+                        No matches.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid gap-4 md:grid-cols-[1fr_auto] md:items-center" x-show="selectedItem">
+                <div class="flex items-center gap-4 min-w-0 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <img :src="selectedItem?.img || ''" alt="" class="h-16 w-16 rounded-2xl bg-slate-900 object-cover shadow-lg" />
+                  <div class="min-w-0">
+                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Selected item</div>
+                    <div class="truncate text-xl font-bold text-white" x-text="selectedItem?.name || '—'"></div>
+                    <div class="mt-1 text-sm text-slate-400">
+                      Official dataset values loaded. You can override them below.
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200 soft-pulse">
+                  <span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+                  Live calculation
+                </div>
+              </div>
+
+              <div class="grid gap-4 items-start md:grid-cols-2">
+                <div class="rounded-3xl border border-white/10 bg-slate-900/65 p-4 md:p-5">
+                  <div class="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Buy price</div>
+                      <div class="text-lg font-bold text-white">Your acquisition cost</div>
+                    </div>
+                    <div class="rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300">Cost basis</div>
+                  </div>
+
+                  <div class="grid grid-cols-3 gap-3">
+                    <div>
+                      <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Gold</label>
+                      <input type="number" min="0" x-model.number="buyCoin.g" @input="normalizeCoin('buy')" class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-3 text-white outline-none focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/10" />
+                    </div>
+                    <div>
+                      <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Silver</label>
+                      <input type="number" min="0" x-model.number="buyCoin.s" @input="normalizeCoin('buy')" class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-3 text-white outline-none focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/10" />
+                    </div>
+                    <div>
+                      <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Copper</label>
+                      <input type="number" min="0" x-model.number="buyCoin.c" @input="normalizeCoin('buy')" class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-3 text-white outline-none focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/10" />
+                    </div>
+                  </div>
+
+                  <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                    Total buy price:
+                    <span class="ml-2 font-bold text-white tabular-nums" x-html="formatCoinsHtml(buyCopper)"></span>
+                  </div>
+                </div>
+
+                <div class="rounded-3xl border border-white/10 bg-slate-900/65 p-4 md:p-5">
+                  <div class="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Sell price</div>
+                      <div class="text-lg font-bold text-white">Your target listing</div>
+                    </div>
+                    <div class="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-300">Revenue side</div>
+                  </div>
+
+                  <div class="grid grid-cols-3 gap-3">
+                    <div>
+                      <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Gold</label>
+                      <input type="number" min="0" x-model.number="sellCoin.g" @input="normalizeCoin('sell')" class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-3 text-white outline-none focus:border-amber-400/60 focus:ring-4 focus:ring-amber-400/10" />
+                    </div>
+                    <div>
+                      <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Silver</label>
+                      <input type="number" min="0" x-model.number="sellCoin.s" @input="normalizeCoin('sell')" class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-3 text-white outline-none focus:border-amber-400/60 focus:ring-4 focus:ring-amber-400/10" />
+                    </div>
+                    <div>
+                      <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Copper</label>
+                      <input type="number" min="0" x-model.number="sellCoin.c" @input="normalizeCoin('sell')" class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-3 text-white outline-none focus:border-amber-400/60 focus:ring-4 focus:ring-amber-400/10" />
+                    </div>
+                  </div>
+
+                  <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                    Total sell price:
+                    <span class="ml-2 font-bold text-white tabular-nums" x-html="formatCoinsHtml(sellCopper)"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid gap-4 items-start md:grid-cols-2">
+                <div class="rounded-3xl border border-white/10 bg-slate-900/65 p-4 md:p-5">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Quantity</div>
+                      <div class="text-lg font-bold text-white">How many units</div>
+                    </div>
+                    <div class="rounded-full bg-fuchsia-400/10 px-3 py-1 text-xs font-semibold text-fuchsia-300">Large values OK</div>
+                  </div>
+
+                  <div class="mt-5">
+                    <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">Item quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      x-model="quantityInput"
+                      @input="normalizeQuantity()"
+                      class="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-4 text-lg font-semibold text-white outline-none focus:border-fuchsia-400/60 focus:ring-4 focus:ring-fuchsia-400/10"
+                    />
+                  </div>
+
+                  <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                    Total units:
+                    <span class="ml-2 font-bold text-white tabular-nums" x-text="quantity.toLocaleString()"></span>
+                  </div>
+                </div>
+
+                <div class="rounded-3xl border border-white/10 bg-slate-900/65 p-4 md:p-5">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Fees setup</div>
+                      <div class="text-lg font-bold text-white">Adjust percentages</div>
+                    </div>
+                    <div class="rounded-full bg-sky-400/10 px-3 py-1 text-xs font-semibold text-sky-300">Editable</div>
+                  </div>
+
+                  <div class="mt-5 space-y-4">
+                    <div>
+                      <div class="mb-2 flex items-center justify-between text-sm">
+                        <label class="font-semibold text-slate-200">Listing fee</label>
+                        <span class="tabular-nums text-slate-300"><span x-text="listingFeePct"></span>%</span>
+                      </div>
+                      <input type="range" min="0" max="30" step="1" x-model.number="listingFeePct" class="w-full accent-sky-400" />
+                    </div>
+
+                    <div>
+                      <div class="mb-2 flex items-center justify-between text-sm">
+                        <label class="font-semibold text-slate-200">Selling fee</label>
+                        <span class="tabular-nums text-slate-300"><span x-text="sellingFeePct"></span>%</span>
+                      </div>
+                      <input type="range" min="0" max="30" step="1" x-model.number="sellingFeePct" class="w-full accent-violet-400" />
+                    </div>
+
+                    <div>
+                      <div class="mb-2 flex items-center justify-between text-sm">
+                        <label class="font-semibold text-slate-200">Net kept after fees</label>
+                        <span class="tabular-nums font-bold text-white"><span x-text="netPercent"></span>%</span>
+                      </div>
+                      <div class="h-3 overflow-hidden rounded-full bg-white/10">
+                        <div class="h-full rounded-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all duration-300" :style="`width:${Math.max(0, Math.min(100, netPercent))}%`"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/70 to-slate-800/60 p-4 md:p-5 md:col-span-2">
+                  <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Break-even</div>
+                  <div class="mt-1 text-lg font-bold text-white">Minimum sell price to not lose money</div>
+                  <div class="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div class="text-sm text-slate-400">Break-even total sell price</div>
+                    <div class="mt-2 text-2xl md:text-3xl font-black tracking-tight text-white tabular-nums" x-html="formatCoinsHtml(breakEvenCopper)"></div>
+                    <div class="mt-2 text-xs text-slate-400">
+                      Based on total cost, quantity, and your current fee percentages.
+                    </div>
+                  </div>
+
+                  <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <button type="button" @click="applyBreakEvenToSell()" class="rounded-2xl bg-white/10 px-4 py-3 font-semibold text-white transition hover:bg-white/15">
+                      Use break-even as sell price
+                    </button>
+                    <button type="button" @click="applyOfficialValues()" class="rounded-2xl bg-sky-500/15 px-4 py-3 font-semibold text-sky-200 transition hover:bg-sky-500/25">
+                      Reload official prices
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="glass rounded-3xl border border-white/10 p-4 md:p-6 shadow-2xl shadow-black/30">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Result</div>
+                <h2 class="mt-1 text-2xl font-black tracking-tight text-white">Trade Summary</h2>
+              </div>
+              <div class="rounded-full px-3 py-1 text-xs font-bold" :class="profitCopper >= 0 ? 'bg-emerald-400/10 text-emerald-300' : 'bg-rose-400/10 text-rose-300'" x-text="profitCopper >= 0 ? 'Profitable' : 'Negative'"></div>
+            </div>
+
+            <div class="mt-5 grid gap-3">
+              <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div class="text-sm text-slate-400">Cost</div>
+                <div class="mt-1 text-xl font-bold tabular-nums text-white" x-html="formatCoinsHtml(buyCopper)"></div>
+              </div>
+
+              <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm text-slate-400">Listing fee</div>
+                  <div class="text-xs text-slate-500" x-text="`${listingFeePct}%`"></div>
+                </div>
+                <div class="mt-1 text-xl font-bold tabular-nums text-white" x-html="formatCoinsHtml(listingFeeCopper)"></div>
+              </div>
+
+              <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm text-slate-400">Selling fee</div>
+                  <div class="text-xs text-slate-500" x-text="`${sellingFeePct}%`"></div>
+                </div>
+                <div class="mt-1 text-xl font-bold tabular-nums text-white" x-html="formatCoinsHtml(sellingFeeCopper)"></div>
+              </div>
+
+              <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div class="text-sm text-slate-400">Net after fees</div>
+                <div class="mt-1 text-xl font-bold tabular-nums text-white" x-html="formatCoinsHtml(netRevenueCopper)"></div>
+              </div>
+
+              <div class="rounded-3xl border p-5" :class="profitCopper >= 0 ? 'border-emerald-400/20 bg-emerald-400/10' : 'border-rose-400/20 bg-rose-400/10'">
+                <div class="text-sm" :class="profitCopper >= 0 ? 'text-emerald-200/90' : 'text-rose-200/90'">Profit</div>
+                <div class="mt-2 text-3xl font-black tracking-tight tabular-nums" :class="profitCopper >= 0 ? 'text-emerald-300' : 'text-rose-300'" x-html="signedCoinsHtml(profitCopper)"></div>
+                <div class="mt-2 text-sm" :class="profitCopper >= 0 ? 'text-emerald-100/75' : 'text-rose-100/75'">
+                  ROI:
+                  <span class="font-bold tabular-nums" x-text="`${roiPct.toFixed(1)}%`"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-6 rounded-3xl border border-white/10 bg-slate-900/60 p-4">
+              <div class="text-sm font-semibold text-white">Quick notes</div>
+              <ul class="mt-3 space-y-2 text-sm text-slate-400 list-disc pl-5">
+                <li>Search results still come from the same external item API.</li>
+                <li>Prices populate automatically, then remain fully editable per unit.</li>
+                <li>Break-even uses your current fee configuration and quantity.</li>
+                <li>Hidden phrases are enabled in the search box.</li>
+              </ul>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      function gw2ProfitApp() {
+        return {
+          items: [],
+          itemsById: new Map(),
+          loaded: false,
+          status: 'Loading item dataset...',
+
+          searchQuery: '',
+          suggestions: [],
+          suggestionsOpen: false,
+          selectedItem: null,
+          quantityInput: 1,
+
+          buyCoin: { g: 0, s: 0, c: 0 },
+          sellCoin: { g: 0, s: 0, c: 0 },
+
+          listingFeePct: 5,
+          sellingFeePct: 10,
+
+          rainingScraps: [],
+          crystalSwarm: [],
+          swarmTimer: null,
+          rotsomodeActive: false,
+          crystalModeActive: false,
+
+          async init() {
+            try {
+              const url = 'https://api.datawars2.ie/gw2/v1/items/json?fields=id,img,name,chat_link,buy_price,sell_price';
+              const res = await fetch(url);
+              const data = await res.json();
+
+              this.items = (Array.isArray(data) ? data : []).filter(x => x && typeof x.name === 'string');
+              this.itemsById = new Map(this.items.map(x => [Number(x.id), x]));
+              this.loaded = true;
+              this.status = `Ready • ${this.items.length.toLocaleString()} items loaded`;
+            } catch (err) {
+              console.error(err);
+              this.status = 'Failed to load item dataset';
+            }
+          },
+
+          get quantity() {
+            const n = Number(this.quantityInput);
+            if (!Number.isFinite(n)) return 1;
+            return Math.max(1, Math.floor(n));
+          },
+
+          get unitBuyCopper() {
+            return this.coinToCopper(this.buyCoin);
+          },
+
+          get unitSellCopper() {
+            return this.coinToCopper(this.sellCoin);
+          },
+
+          get buyCopper() {
+            return this.unitBuyCopper * this.quantity;
+          },
+
+          get sellCopper() {
+            return this.unitSellCopper * this.quantity;
+          },
+
+          get listingFeeCopper() {
+            return Math.floor(this.sellCopper * (this.listingFeePct / 100));
+          },
+
+          get sellingFeeCopper() {
+            return Math.floor(this.sellCopper * (this.sellingFeePct / 100));
+          },
+
+          get netPercent() {
+            return Math.max(0, 100 - this.listingFeePct - this.sellingFeePct);
+          },
+
+          get netRevenueCopper() {
+            return Math.max(0, this.sellCopper - this.listingFeeCopper - this.sellingFeeCopper);
+          },
+
+          get profitCopper() {
+            return this.netRevenueCopper - this.buyCopper;
+          },
+
+          get breakEvenCopper() {
+            const keepRatio = 1 - ((this.listingFeePct + this.sellingFeePct) / 100);
+            if (keepRatio <= 0) return 0;
+            return Math.ceil(this.buyCopper / keepRatio);
+          },
+
+          get roiPct() {
+            if (this.buyCopper <= 0) return 0;
+            return (this.profitCopper / this.buyCopper) * 100;
+          },
+
+          handleSearchInput() {
+            const q = this.searchQuery.trim();
+            const qLower = q.toLowerCase();
+
+            if (qLower === 'rotsomode') {
+              if (this.rotsomodeActive) {
+                this.stopRotsomode();
+              } else {
+                this.activateRotsomode();
+              }
+              this.searchQuery = '';
+              this.suggestions = [];
+              this.suggestionsOpen = false;
+              return;
+            }
+
+            if (qLower === 'iamlargaasgnashblade') {
+              if (this.crystalModeActive) {
+                this.stopCrystalMode();
+              } else {
+                this.activateCrystalMode();
+              }
+              this.searchQuery = '';
+              this.suggestions = [];
+              this.suggestionsOpen = false;
+              return;
+            }
+
+            if (q.length < 2) {
+              this.suggestions = [];
+              this.suggestionsOpen = false;
+              return;
+            }
+
+            const matches = this.items
+              .filter(it => it.name.toLowerCase().includes(qLower))
+              .sort((a, b) => {
+                const exactA = a.name.toLowerCase().startsWith(qLower) ? 1 : 0;
+                const exactB = b.name.toLowerCase().startsWith(qLower) ? 1 : 0;
+                if (exactB !== exactA) return exactB - exactA;
+                const sellA = Number(a.sell_price) || 0;
+                const sellB = Number(b.sell_price) || 0;
+                if (sellB !== sellA) return sellB - sellA;
+                return a.name.localeCompare(b.name);
+              })
+              .slice(0, 8);
+
+            this.suggestions = matches;
+            this.suggestionsOpen = true;
+          },
+
+          closeSuggestions() {
+            this.suggestionsOpen = false;
+          },
+
+          selectFirstSuggestion() {
+            if (this.suggestions.length > 0) {
+              this.selectItem(this.suggestions[0]);
+            }
+          },
+
+          selectItem(item) {
+            this.selectedItem = item;
+            this.searchQuery = item.name;
+            this.suggestions = [];
+            this.suggestionsOpen = false;
+            this.applyItemValues(item);
+          },
+
+          applyItemValues(item) {
+            this.setCoinFromCopper('buy', Number(item.buy_price) || 0);
+            this.setCoinFromCopper('sell', Number(item.sell_price) || 0);
+          },
+
+          applyOfficialValues() {
+            if (!this.selectedItem) return;
+            this.applyItemValues(this.selectedItem);
+          },
+
+			applyBreakEvenToSell() {
+			  const keepRatio = 1 - ((this.listingFeePct + this.sellingFeePct) / 100);
+
+			  if (keepRatio <= 0 || this.quantity <= 0) {
+				this.setCoinFromCopper('sell', 0);
+				return;
+			  }
+
+			  let unitSell = Math.ceil(this.buyCopper / keepRatio / this.quantity);
+
+			  const calcProfit = (unit) => {
+				const totalSell = unit * this.quantity;
+				const listingFee = Math.floor(totalSell * (this.listingFeePct / 100));
+				const sellingFee = Math.floor(totalSell * (this.sellingFeePct / 100));
+				const net = totalSell - listingFee - sellingFee;
+				return net - this.buyCopper;
+			  };
+
+			  // move downward while still non-negative, to get closest to true break-even
+			  while (unitSell > 0 && calcProfit(unitSell - 1) >= 0) {
+				unitSell--;
+			  }
+
+			  this.setCoinFromCopper('sell', unitSell);
+			},
+
+          normalizeQuantity() {
+            const n = Number(this.quantityInput);
+            if (!Number.isFinite(n)) {
+              this.quantityInput = 1;
+              return;
+            }
+            this.quantityInput = Math.max(1, Math.floor(n));
+          },
+
+          coinToCopper(coin) {
+            const g = Math.max(0, Number(coin.g) || 0);
+            const s = Math.max(0, Number(coin.s) || 0);
+            const c = Math.max(0, Number(coin.c) || 0);
+            return (g * 10000) + (s * 100) + c;
+          },
+
+          setCoinFromCopper(side, copper) {
+            const value = Math.max(0, Math.floor(Number(copper) || 0));
+            const target = side === 'buy' ? this.buyCoin : this.sellCoin;
+            target.g = Math.floor(value / 10000);
+            target.s = Math.floor((value % 10000) / 100);
+            target.c = value % 100;
+          },
+
+          normalizeCoin(side) {
+            const target = side === 'buy' ? this.buyCoin : this.sellCoin;
+            const rawCopper = this.coinToCopper(target);
+            this.setCoinFromCopper(side, rawCopper);
+          },
+
+          formatCoinsHtml(copperPrice) {
+            const v = Math.max(0, Number(copperPrice) || 0);
+            const gold = Math.floor(v / 10000);
+            const silver = Math.floor((v % 10000) / 100).toString().padStart(2, '0');
+            const copper = (v % 100).toString().padStart(2, '0');
+
+            const g = '<img src="gold.png" alt="g" class="coin-icon mx-1">';
+            const s = '<img src="silver.png" alt="s" class="coin-icon mx-1">';
+            const c = '<img src="copper.png" alt="c" class="coin-icon mx-1">';
+
+            if (gold === 0) {
+              if (silver === '00') return `${copper}${c}`;
+              return `${silver}${s}${copper}${c}`;
+            }
+
+            return `${gold}${g}${silver}${s}${copper}${c}`;
+          },
+
+          signedCoinsHtml(value) {
+            const negative = Number(value) < 0;
+            const abs = Math.abs(Number(value) || 0);
+            return `${negative ? '-' : '+'}${this.formatCoinsHtml(abs)}`;
+          },
+
+          resetAll() {
+            this.searchQuery = '';
+            this.suggestions = [];
+            this.suggestionsOpen = false;
+            this.selectedItem = null;
+            this.quantityInput = 1;
+            this.setCoinFromCopper('buy', 0);
+            this.setCoinFromCopper('sell', 0);
+            this.listingFeePct = 5;
+            this.sellingFeePct = 10;
+          },
+
+          activateRotsomode() {
+            this.stopCrystalMode();
+            this.rotsomodeActive = true;
+
+            const silk = this.items.find(it => it.name === 'Silk Scrap');
+            this.suggestions = silk ? [silk] : [];
+            this.suggestionsOpen = true;
+
+            if (!silk?.img) return;
+
+            this.rainingScraps = Array.from({ length: 42 }, (_, i) => ({
+              id: `scrap-${Date.now()}-${i}`,
+              img: silk.img,
+              left: Math.random() * 100,
+              size: 24 + Math.random() * 42,
+              duration: 2600 + Math.random() * 4200,
+              delay: Math.random() * 1200,
+            }));
+
+            setTimeout(() => {
+              if (this.rotsomodeActive) {
+                this.rainingScraps = [];
+                this.activateRotsomode();
+              }
+            }, 7600);
+          },
+
+          stopRotsomode() {
+            this.rainingScraps = [];
+            this.rotsomodeActive = false;
+          },
+
+          activateCrystalMode() {
+            this.stopRotsomode();
+            this.crystalModeActive = true;
+
+            const crystal = this.items.find(it => it.name === 'Crystal Core');
+            this.suggestions = crystal ? [crystal] : [];
+            this.suggestionsOpen = true;
+
+            if (!crystal?.img) return;
+
+            const count = 16;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+
+            this.crystalSwarm = Array.from({ length: count }, (_, i) => ({
+              id: `crystal-${Date.now()}-${i}`,
+              img: crystal.img,
+              x: Math.random() * Math.max(80, w - 80),
+              y: Math.random() * Math.max(80, h - 80),
+              dx: (Math.random() > 0.5 ? 1 : -1) * (1.8 + Math.random() * 1.5),
+              dy: (Math.random() > 0.5 ? 1 : -1) * (1.8 + Math.random() * 1.5),
+              size: 32 + Math.random() * 24,
+              rot: Math.random() * 360,
+            }));
+
+            this.startSwarmAnimation();
+          },
+
+          stopCrystalMode() {
+            this.crystalSwarm = [];
+            this.crystalModeActive = false;
+            if (this.swarmTimer) {
+              cancelAnimationFrame(this.swarmTimer);
+              this.swarmTimer = null;
+            }
+          },
+
+          startSwarmAnimation() {
+            const tick = () => {
+              const w = window.innerWidth;
+              const h = window.innerHeight;
+
+              this.crystalSwarm = this.crystalSwarm.map(item => {
+                let x = item.x + item.dx;
+                let y = item.y + item.dy;
+                let dx = item.dx;
+                let dy = item.dy;
+                const size = item.size;
+
+                if (x <= 0 || x + size >= w) dx *= -1;
+                if (y <= 0 || y + size >= h) dy *= -1;
+
+                x = Math.max(0, Math.min(w - size, x));
+                y = Math.max(0, Math.min(h - size, y));
+
+                return {
+                  ...item,
+                  x,
+                  y,
+                  dx,
+                  dy,
+                  rot: item.rot + 1.2,
+                };
+              });
+
+              if (this.crystalModeActive) {
+                this.swarmTimer = requestAnimationFrame(tick);
+              } else {
+                this.swarmTimer = null;
+              }
+            };
+
+            if (this.swarmTimer) cancelAnimationFrame(this.swarmTimer);
+            this.swarmTimer = requestAnimationFrame(tick);
+          },
+        };
+      }
+    </script>
+  </body>
+</html>
